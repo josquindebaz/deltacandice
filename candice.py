@@ -4,11 +4,6 @@ import tweepy
 import re
 import json
 
-#ids of tweets you want to check
-queue = {'todo': ["830808934772523009", "831092048354824192"], \
-     'done' : []}
-
-#you keys for twitter API
 consumer_key = ""
 consumer_secret = ""
 access_token = ""
@@ -17,74 +12,110 @@ access_token_secret = ""
 auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
 auth.set_access_token(access_token, access_token_secret)
 
-api = tweepy.API(auth)
+api = tweepy.API(auth, wait_on_rate_limit=True)
 
-def searchTWperso(text):
-    if not re.search("^RT ", text):
-        if not re.search("http", text):
-           return True
-        else:
-           return False
-    return False
+with open('fakes.json', 'r') as jsonFile:
+    listeFakes = json.loads(jsonFile.read())
 
-def filtre_user(STS):
-    if True in map(lambda x: searchTWperso(x.text), STS):
-        return True 
-    return False
-        
-def searchlink(T):
-    if T.entities["urls"]:
-        if re.search("growthhackingfrance",
-                T.entities['urls'][0][u'expanded_url']):
-            if (T.id not in queue['done']) and (T.id not in queue['todo']):
-                pass
+def saveFKjson(liste):
+    with open('fakes.json', 'w') as outfile:
+        str_ = json.dumps(liste,
+                          indent=4, sort_keys=True,
+                          separators=(',', ':'), ensure_ascii=False)
+        outfile.write(str_.encode('utf-8'))
+
+def is_central(status, central = "@GrowthHackFR"):
+    if re.search(central, status):
+        return 1
+    else:
+        return 0
+
+def is_domestic(status):
+    """ return True if status is domestic """
+    if not re.search("^RT ", status):
+        if not re.search("http", status):
             return True
         else:
             return False
-    else:
-        return False
+    return False
 
-D = {}
+def domestic_user(status):
+    """False if at least one status is domestic"""
+    if True in map(lambda x: is_domestic(x.text), status):
+        return False 
+    return True
 
-while (queue['todo']):
-    T_id = queue['todo'].pop()
-    queue['done'].append(T_id)
+def hasurl(descr):
+    """ return True if url in profile """
+    return 'url' in R.user.entities.keys()
 
-    #RT of the tweet
-    RT = api.retweets(T_id, 100)
-    for T in RT:
+def user_descr(user, N = 0):
+    return  {"name": user.screen_name, \
+                "following": user.friends_count,\
+                "followers": user.followers_count,\
+                "tweets": user.statuses_count,\
+                "creation": str(user.created_at),\
+                "GH20": N, \
+                "description": user.description, \
+                "image": user.profile_image_url }
 
-        STS = api.user_timeline(T.user.id)
+def sources(TL):
+    d = {}
+    for T in TL:
+        source = T.source
+        if source in d.keys():
+            d[source] += 1
+        else:
+            d[source] = 1
+    return d
 
-        #if user has no domestic tweet
-        if not filtre_user(STS):
+seed = api.user_timeline("GrowthHackFR", count=200)
+done = []
+for T in seed[0:]:
+    if (T.retweet):
+        N = T.retweet_count
+        RS  = api.retweets(T.id)
+        for R in RS[0:]:
 
-            if (T.user.url):
-                pass
+            """if already in fake list"""
+            if str(R.user.id) in listeFakes.keys() or R.user.id in done:
+                print R.user.screen_name, "already done"
 
-            #if user has no url in profile
             else:
+                done.append(R.user.id)
 
-                #how many link to growthhackingfrance in the last 20 tweets
-                N = sum(map(searchlink, STS)) 
+                """ if more friends thant followers """
+                if (float(R.user.friends_count) / R.user.followers_count) < 1.5:
 
-                #if at least 2 
-                if N > 1:
-                    D[T.user.id] = {"name": T.user.screen_name, \
-                        "following": T.user.friends_count,\
-                        "followers": T.user.followers_count,\
-                        "tweets": T.user.statuses_count,\
-                        "creation": str(T.user.created_at),\
-                        "GH20": N, \
-                        "description": T.user.description, \
-                        "image": T.user.profile_image_url }
+                    TL = api.user_timeline(R.user.id, count=200)
 
-                    print(D[T.user.id])
+                    """ if 1 or 2 sources only """
+                    Dsources = sources(TL)   
+                    if len( Dsources ) == 2:
+                        print Dsources
 
-with open('fakes.json', 'w') as outfile:
-    str_ = json.dumps(D,
-                      indent=4, sort_keys=True,
-                      separators=(',', ':'), ensure_ascii=False)
-    outfile.write(str_.encode('utf-8'))
+                        """ if domestic tweets """
+                        if domestic_user(TL):
+
+                            """ if more than 10 GrowthHack """
+                            N = sum(map(lambda x: is_central(x.text), TL)) 
+                            if N > 10:
+
+                                """ if no url in profile """
+                                if not hasurl(R.user.entities):
+                                    print "adding fake", R.user.id, user_descr(R.user, N)
+                                    listeFakes[R.user.id] = user_descr(R.user, N)
+                                    saveFKjson(listeFakes)
+                                else:
+                                    print "has url", R.user.id,\
+                                        user_descr(R.user, N), R.user.entities["url"]
+
+
+                            else:
+                                print "weak N", R.user.id, user_descr(R.user, \
+                                    N), float(N) / R.user.statuses_count
+
+                        else:
+                            print "domestic", R.user.id, user_descr(R.user, N)
 
 
