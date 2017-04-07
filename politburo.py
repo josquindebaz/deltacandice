@@ -38,7 +38,8 @@ def followers(profile):
 
 
 for profile in [
-#"EmmanuelMacron", "MLP_officiel", "JLMelenchon", "FrancoisFillon", "benoithamon",  "PhilippePoutou", "n_arthaud", 
+    "EmmanuelMacron", "MLP_officiel", "JLMelenchon", "FrancoisFillon", \
+    "benoithamon",  "PhilippePoutou", "n_arthaud", \
     "UPR_Asselineau", "dupontaignan",\
     "JCheminade", "jeanlassalle"]:
 
